@@ -32,6 +32,9 @@ export default function Home() {
   const [imageURL, setImageURL] = useState("/image_square.png")
   const canvasEl = useRef(null)
   const fileInputEl = useRef(null)
+  const pointsRef = useRef([]);
+
+  const [stats, setStats] = useState(null)
 
   // Start encoding image
   const encodeImageClick = async () => {
@@ -45,6 +48,9 @@ export default function Home() {
   const imageClick = (event) => {
     if (!imageEncoded) return;
 
+    event.preventDefault();
+    console.log(event.button);
+
     const canvas = canvasEl.current
     const rect = event.target.getBoundingClientRect();
 
@@ -52,10 +58,12 @@ export default function Home() {
     const point = {
       x: (event.clientX - rect.left) / canvas.width * imageSize.w,
       y: (event.clientY - rect.top) / canvas.height * imageSize.h,
-      label: 1
+      label: event.button === 0 ? 1 : 0
     }
 
-    samWorker.current.postMessage({ type: 'decodeMask', data: point });  
+    pointsRef.current.push(point);
+
+    samWorker.current.postMessage({ type: 'decodeMask', data: pointsRef.current });  
 
     setLoading(true)
     setStatus("Decoding")
@@ -69,13 +77,8 @@ export default function Home() {
     const bestMaskIdx = maskScores.indexOf(Math.max(...maskScores))
     const maskCanvas = sliceTensorMask(maskTensors, bestMaskIdx)    
 
-    setMask((prevMask) => {
-      if (prevMask) {
-        return mergeMasks(maskCanvas, prevMask)
-      } else {
-        return resizeCanvas(maskCanvas, imageSize)
-      }
-    })
+    const resizedMaskCanvas = resizeCanvas(maskCanvas, imageSize)
+    setMask(resizedMaskCanvas)
   }
 
   // Handle web worker messages
@@ -104,6 +107,8 @@ export default function Home() {
       handleDecodingResults(data) 
       setLoading(false)
       setStatus("Ready. Click on image")
+    } else if (type == "stats") {
+      setStats(data)
     }
   }
 
@@ -128,6 +133,10 @@ export default function Home() {
     setImageEncoded(false)
     setStatus("Encode image")
     setImageURL(dataURL)
+  }
+
+  function handleRequestStats() {
+    samWorker.current.postMessage({ type: 'stats' });
   }
 
   // Load web worker 
@@ -177,7 +186,7 @@ export default function Home() {
       const ctx = canvas.getContext('2d')
 
       ctx.drawImage(image, 0, 0, image.width, image.height, 0, 0, canvas.width, canvas.height);      
-      ctx.globalAlpha = 0.4
+      ctx.globalAlpha = 0.7
       ctx.drawImage(mask, 0, 0, mask.width, mask.height, 0, 0, canvas.width, canvas.height);      
       ctx.globalAlpha = 1;
     }
@@ -198,7 +207,7 @@ export default function Home() {
         </div>
         <CardHeader>
           <CardTitle>
-            <p>Clientside Image Segmentation with onnxruntime-web and Meta's SAM2
+            <p>Clientside Image Segmentation with onnxruntime-web and Meta's SAM2 (forked from <a href="https://github.com/geronimi73/next-sam">geronimi73/next-sam</a>)
             </p>
             <p className={cn("flex gap-1 items-center", device ? "visible" : "invisible")}>
               <Fan color="#000" className="w-6 h-6 animate-[spin_2.5s_linear_infinite] direction-reverse"/>
@@ -221,10 +230,17 @@ export default function Home() {
               <Button onClick={()=>{fileInputEl.current.click()}} variant="secondary" disabled={loading}><ImageUp/> Change image</Button>
             </div>
             <div className="flex justify-center">
-              <canvas ref={canvasEl} width={512} height={512} onClick={imageClick}/>
+              <canvas ref={canvasEl} width={512} height={512} onClick={imageClick} onContextMenu={(event) => {
+                event.preventDefault()
+                imageClick(event);
+              }}/>
             </div>
           </div>
         </CardContent>
+        <div className="flex flex-col p-4 gap-2">
+        <Button onClick={handleRequestStats} variant="secondary">Print stats</Button>
+          <pre className="p-4 border-gray-600 bg-gray-100">{stats != null && JSON.stringify(stats, null, 2)}</pre>
+        </div>
       </Card>
       <input ref={fileInputEl} hidden="True" accept="image/*" type='file' onInput={handleFileUpload} />
       <Analytics />
